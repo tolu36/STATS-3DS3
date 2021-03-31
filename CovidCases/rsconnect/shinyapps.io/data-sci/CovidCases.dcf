@@ -1,0 +1,12 @@
+name: CovidCases
+title: CovidCases
+username:
+account: data-sci
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3634735
+bundleId: 4221117
+url: https://data-sci.shinyapps.io/CovidCases/
+when: 1613301026.33803
+asMultiple: FALSE
+asStatic: FALSE
