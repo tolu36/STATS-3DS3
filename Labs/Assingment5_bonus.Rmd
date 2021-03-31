@@ -9,4 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-My repo
+
+
+[My repo!](https://github.com/tolu36/STATS-3DS3.git)
+
