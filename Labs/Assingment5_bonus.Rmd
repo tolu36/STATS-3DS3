@@ -11,5 +11,5 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-[My repo!](https://github.com/tolu36/STATS-3DS3.git)
+[My repo!](https://github.com/tolu36/STATS-3DS3/tree/master/Labs)
 
