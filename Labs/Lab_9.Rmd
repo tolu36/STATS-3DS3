@@ -1,0 +1,590 @@
+---
+title: "Lab 8: Github, classification trees, bagging, RF, boosting"
+output: 
+  learnr::tutorial
+bibliography: www/STATS3DS3.bib
+runtime: shiny_prerendered
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(learnr)
+library(GGally)
+#install.packages("kableExtra")
+library(kableExtra)
+```
+
+## Recap
+* Lab 3: 
+  * RProject - **RDS** Chapter 8
+  * Lecture 3  
+      * Data transformation - **RDS** Chapter 5
+      * Type of variables and plots, contours - **RDS** Chapter 7.3-7.8 
+  * Lecture 4  
+      * Plots to explore variation and covariation
+      * Word clouds - **Text Mining With R** [\blc 7 Case study: comparing Twitter archives\bc](https://www.tidytextmining.com/twitter.html) 
+      * Network - **Modern Statistics for Modern Biology** [\blc Chapter 10\bc](http://web.stanford.edu/class/bios221/book/Chap-Graphs.html) 
+      * Time series plots - [\blc https://www.r-graph-gallery.com/279-plotting-time-series-with-ggplot2.html\bc](https://www.r-graph-gallery.com/279-plotting-time-series-with-ggplot2.html)
+
+* Lab 4:
+  * RMarkdown - **RDS** Chapter 26-27.4.2
+  * Shiny (Lecture 5)
+  * KNN Classifier (Lecture 6)
+  
+* Lab 5
+  * Text mining (word cloud) - Lab 3
+  * Classification trees
+     * [Breast Cancer Wisconsin (Diagnostic) Data Set from UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+%28Diagnostic%29)
+  * Strings in R
+
+* Lab 6
+  * Classification trees (`tree::tree()` and `rpart::rpart()`)
+  
+* Lab 7
+  * Regression trees, bagging, RF
+  
+## Outline for today's lab
+
+* Git.
+* NN.
+* Clustering.
+
+  
+## Git, Github, RStudio
+
+* We will follow [https://happygitwithr.com/](https://happygitwithr.com/) to create an RMarkdown file. Then, let's see how we can integrate Git and GitHub with R and R Markdown. 
+* Git is a version control system.
+* Github, Bitbucket, and GitLab - Hosts Git-based projects.
+* [Install Git](https://happygitwithr.com/install-git.html#install-git)
+* Connect to Github
+  * Pull from and push to Github from your computer.
+  * Cache credentials for HTTPS. [Getting a personal token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token). 
+ 
+## Neural networks (seeds data)
+
+* seeds data set from UCI repository^[[
+seeds Data Set](https://archive.ics.uci.edu/ml/datasets/seeds)]
+* Explore the data.
+  
+  * Measurements of geometrical properties of kernels belonging to three different varieties of wheat. A soft X-ray technique and GRAINS package were used to construct all seven, real-valued attributes.
+
+
+```{r seeds1, exercise = TRUE}
+seeds <- read.table(
+  "https://archive.ics.uci.edu/ml/machine-learning-databases/00236/seeds_dataset.txt"
+  )
+colnames(seeds) <- c("area", 
+                     "perimeter", 
+                     "compactness", 
+                     "length_of_kernel", 
+                     "width_of_kernel",
+                     "asy_coeff", 
+                     "length_of_kernel_groove", 
+                     "Class")
+summary(seeds)
+cor(dplyr::select(seeds, -Class))
+
+```
+
+
+
+* Print tidy seeds data set.
+
+```{r seeds2, exercise = TRUE, exercise.setup = c("seeds1")}
+dim(seeds)
+knitr::kable(head(seeds)) %>%
+  kable_styling(latex_options="scale_down")
+
+```
+
+* We scale the predictors.
+
+```{r seeds3, exercise = TRUE, exercise.setup = c("seeds1", "seeds2")}
+x <- seeds %>%
+  dplyr::select(-Class) %>%
+  scale()
+```
+
+
+* We split 75\%/25\% training/test set. 
+
+```{r seeds4, exercise = TRUE, exercise.setup = c("seeds1", "seeds2", "seeds3")}
+set.seed(1)
+
+seeds_train_index <- seeds %>%
+  mutate(ind = 1:nrow(seeds)) %>%
+  group_by(Class) %>%
+  mutate(n = n()) %>%
+  sample_frac(size = .75, weight = n) %>%
+  ungroup() %>%
+  pull(ind)
+
+```
+
+
+* We create binary output units $y_{k}, k= 1, 2, 3$ using `class.ind()`.
+
+```{r seeds5, exercise = TRUE, exercise.setup = c("seeds1, seeds2", "seeds3", "seeds4")}
+library(nnet)
+class_labels <- pull(seeds, Class) %>% 
+  class.ind() 
+knitr::kable(head(class_labels)) %>%
+  kable_styling(latex_options="scale_down")
+
+```
+
+
+* Create predictor matrix for training/test set and output for training/test set.
+
+```{r seeds6, exercise = TRUE, exercise.setup = c("seeds1, seeds2", "seeds3", "seeds4", "seeds5")}
+seeds_train <- x[seeds_train_index, ]
+train_class <- class_labels[seeds_train_index,]
+seeds_test <- x[-seeds_train_index, ] 
+test_class <- class_labels[-seeds_train_index,]
+
+```
+
+* Let's look at the help page for `nnet()`.
+
+* Let's tune `size` = number of units in the hidden layer and `decay` = weight decay parameter. 
+
+```{r seeds7, exercise = TRUE, exercise.setup = c("seeds1, seeds2", "seeds3", "seeds4", "seeds5", "seeds6")}
+nn_seeds <- nnet(
+  x = seeds_train, 
+  y = train_class, 
+  size = 4, 
+  decay = 0, 
+  softmax = TRUE,
+  maxit=500
+  )
+
+```
+
+
+* Compute test error for NN with `size = 4` and `decay = 0`.
+
+```{r seeds8, exercise = TRUE, exercise.setup = c("seeds1, seeds2", "seeds3", "seeds4", "seeds5", "seeds6", "seeds7")}
+nn_pred <- predict(nn_seeds, seeds_test, 
+                   type="class")
+
+tab_seeds <- table(slice(
+  seeds, 
+  -seeds_train_index) %>% pull(Class), 
+  nn_pred)
+
+1-sum(diag(tab_seeds))/sum(tab_seeds)
+```
+
+## Neural networks (Boston data (quantitative response))
+
+* Let's consider housing price data, _Boston_ in MASS package.
+* Response is quantitative. 
+
+```{r Boston1, exercise = TRUE}
+library(nnet)
+library(MASS)
+```
+
+
+* We scale predictors and response.
+* We split training/test set.
+
+```{r Boston2, exercise = TRUE, exercise.setup = c("Boston1")}
+train_Boston <- sample(
+  1:nrow(Boston), 
+  nrow(Boston)/2
+  )
+
+x <- scale(Boston)
+```
+
+
+* Create predictor matrix for training/test set and output for training/test set.
+
+```{r Boston3, exercise = TRUE, exercise.setup = c("Boston1", "Boston2")}
+Boston_train <- x[train_Boston, ]
+train_medv <- x[train_Boston, "medv"]
+Boston_test <- x[-train_Boston, ] 
+test_medv <- x[-train_Boston, "medv"]
+
+```
+
+* Let's tune `size` = number of units in the hidden layer and `decay` = weight decay parameter. 
+
+```{r Boston4, exercise = TRUE, exercise.setup = c("Boston1", "Boston2", "Boston3")}
+nn_Boston <- nnet(
+  Boston_train, 
+  train_medv,  
+  size=10, 
+  decay=1, 
+  softmax=FALSE, 
+  maxit=1000,
+  linout=TRUE
+  )
+
+```
+
+Compute test error for the above model: NN with `size = 10` and `decay = 1`.
+
+```{r Boston5, exercise = TRUE, exercise.setup = c("Boston1", "Boston2", "Boston3", "Boston4")}
+nn_pred <- predict(
+  nn_Boston, 
+  Boston_test,
+  type="raw"
+  )
+```
+
+
+```{r Boston6, exercise = TRUE, exercise.setup = c("Boston1", "Boston2", "Boston3", "Boston4", "Boston5")}
+plot(test_medv, nn_pred)
+
+mean((test_medv - nn_pred)^2)
+```
+
+
+## CV for NN - Iris data 
+
+* 80\%/20\% training/test set.
+
+### Let's vary the size of hidden layer- Iris data 
+
+```{r i-cv1, exercise = TRUE}
+library(e1071)
+library(cluster)
+set.seed(1)
+
+data("iris")
+
+Species <- pull(iris, Species)
+
+xy <- dplyr::select(iris, -Species) %>%
+  scale() %>% 
+  data.frame() %>% 
+  mutate(Species = Species) # scale predictors
+
+iris_train_index <- iris %>%
+  mutate(ind = 1:nrow(iris)) %>%
+  group_by(Species) %>%
+  mutate(n = n()) %>%
+  sample_frac(size = .8, weight = n) %>%
+  ungroup() %>%
+  pull(ind)
+
+iris_train <- slice(xy, iris_train_index)
+iris_test <- slice(xy, -iris_train_index)
+class_labels <- pull(xy, Species) %>% 
+  class.ind() 
+
+iris_nnet1 <- tune.nnet(
+  Species~., 
+  data = iris_train, 
+  size = 1:30, 
+  tunecontrol = tune.control(sampling = "cross",cross=5)
+  )
+
+head(summary(iris_nnet1))
+
+plot(iris_nnet1)
+```
+
+
+
+Model selection - size  = `iris_nnet1$best.parameters[1,1]` with relatively small CV error and dispersion of CV error.
+
+
+Fit the model with size  = `iris_nnet1$best.parameters[1,1]`.
+
+```{r i-cv2, exercise = TRUE, exercise.setup = c("i-cv1")}
+library(nnet)
+nn_iris <- nnet(
+  x = dplyr::select(iris_train, -Species),
+  y = class_labels[iris_train_index, ],
+  size = iris_nnet1$best.parameters[1,1], 
+  decay = 0, 
+  softmax = TRUE
+  )
+```
+
+
+Compute test error for the selected model with size = `iris_nnet1$best.parameters[1,1]`
+
+```{r i-cv3, exercise = TRUE, exercise.setup = c("i-cv1", "i-cv2")}
+nn_pred <- predict(
+  nn_iris, 
+  dplyr::select(iris_test, -Species), 
+  type="class"
+  )
+
+tab <- table(pull(iris_test, Species), 
+  nn_pred
+  )
+
+tab
+1- sum(diag(tab))/sum(tab)
+```
+
+
+### Let's tune decay and size - Iris data 
+
+```{r i-cv4, exercise = TRUE, exercise.setup = c("i-cv1", "i-cv2", "i-cv3")}
+set.seed(1)
+
+iris_nnet2 <- tune.nnet(
+  Species~., 
+  data = iris_train, 
+  size = 1:20,
+  decay = 0:3,
+  tunecontrol = tune.control(sampling = "cross",cross=5)
+  )
+
+head(summary(iris_nnet2))
+
+plot(iris_nnet2)
+```
+
+
+
+We can choose size  = `iris_nnet2$best.parameters[1,1]` and decay `iris_nnet2$best.parameters[1,2]`.
+
+
+Fit the model with size  = `iris_nnet2$best.parameters[1,1]` and decay = `iris_nnet2$best.parameters[1,2]`.
+
+```{r i-cv5, exercise = TRUE, exercise.setup = c("i-cv1", "i-cv2", "i-cv3", "i-cv4")}
+nn_iris_d_s <- nnet(
+  x = dplyr::select(iris_train, -Species),
+  y = class_labels[iris_train_index, ], 
+  size = iris_nnet2$best.parameters[1,1], 
+  decay = iris_nnet2$best.parameters[1,2], 
+  softmax = TRUE
+  )
+
+# Compute test error
+nn_pred <- predict(
+  nn_iris_d_s, 
+  dplyr::select(iris_test, -Species), 
+  type="class"
+  )
+
+tab <- table(pull(iris_test, Species), 
+  nn_pred
+  )
+
+tab
+1- sum(diag(tab))/sum(tab)
+```
+
+
+
+
+## Clustering -coffee data
+
+
+K-means clustering assignment depends on the initial cluster assignments. Thus, we need to run the clustering with different random assignment and select the best solution (the clustering with the minimum total within sum of squares). 
+
+Coffee - from the help page - data on the chemical composition of coffee samples collected from around the world, comprising 43 samples from 29 countries. We dropped the first two columns of the data. 
+
+### k-means -coffee data
+
+* Let's apply k-means for clustering.
+
+```{r c-1, exercise = TRUE}
+#install.packages("cluster")
+library(cluster) 
+library(factoextra) # PCA
+library(pgmm) # coffee data
+data("coffee")
+set.seed(1)
+x <- dplyr::select(coffee, - Variety, - Country) 
+x_scaled <- scale(x)
+kmeans_coffee <- kmeans(x_scaled, 2)
+kmeans_coffee$tot.withinss
+kmeans_coffee <- kmeans(x_scaled, 3)
+kmeans_coffee$tot.withinss
+
+# Let's select K using elbow method
+withiclusterss <- function(K,x){
+  kmeans(x, K)$tot.withinss
+}
+
+K <- 1:8
+
+wcss <- lapply(as.list(K), function(k){
+  withiclusterss(k, x_scaled)
+}) %>% unlist()
+
+ggplot(tibble(K = K, wcss = wcss), aes(x = K, y = wcss)) +
+  geom_point() +
+  geom_line() +
+  xlab("Number of clusters (k)") +
+  ylab("Total within-clusters sum of squares") +
+  scale_x_continuous(breaks=c(seq(1,K[length(K)])))
+```
+
+Based on the elbow method, we can use $k=2$. There are `dim(x_scaled)[2]` variables. So we need to use dimensionality reduction technique and then plot the clusters in two-dimensions.
+
+```{r c-2, exercise = TRUE, exercise.setup = c("c-1")}
+kmeans_coffee <- kmeans(x_scaled, 2)
+fvPCA <- fviz_cluster(kmeans_coffee, 
+                    x_scaled, 
+                    ellipse.type = "norm",
+                    main = "Plot the results of k-means clustering after PCA")
+fvPCA
+```
+
+
+* Let's use silhouette plots to choose the best number of clusters.
+  * Silhouette measures how similar observations are within clusters.
+  * Large average silhouette width indicates an appropriate number of clusters.
+  
+```{r c-3, exercise = TRUE, exercise.setup = c("c-1", "c-2")}
+si <- silhouette(kmeans_coffee$cluster, dist(x_scaled))
+head(si)
+#average Silhouette width
+mean(si[, 3])
+plot(si, nmax= 80, cex.names=0.6, main = "")
+
+# Let's select K using average Silhouette width
+avgSilhouette <- function(K,x) {
+  km_cl <- kmeans(x, K)
+  sil <- silhouette(km_cl$cluster, dist(x)) 
+  return(mean(sil[, 3]))
+}
+
+K <- 2:8
+
+avgSil <- numeric()
+for(i in K){
+  avgSil[(i-1)] <- avgSilhouette(i, x_scaled)
+}
+
+ggplot(tibble(K = K, avgSil = avgSil), aes(x = K, y = avgSil)) +
+  geom_point() +
+  geom_line() +
+  xlab("Number of clusters (k)") +
+  ylab("Average silhouette width") +
+  scale_x_continuous(breaks=c(seq(1,K[length(K)])))
+
+
+```
+
+Based on the average Silhouette width, we can use $k=2$.
+
+### k-medoid clustering
+
+* Let's apply k-medoid clustering - coffee data
+
+```{r c-4, exercise = TRUE, exercise.setup = c("c-1", "c-2", "c-3")}
+kmedoid_coffee <- pam(x_scaled, 2)
+kmedoid_coffee$silinfo$avg.width
+
+avgSil <- lapply(as.list(2:8), function(k){
+  kmedoid_coffee <- pam(x_scaled, k)
+kmedoid_coffee$silinfo$avg.width
+}) %>% unlist()
+
+ggplot(tibble(K = 2:8, avgSil = avgSil), aes(x = K, y = avgSil)) +
+  geom_point() +
+  geom_line() +
+  xlab("Number of clusters (k)") +
+  ylab("Average silhouette width for k-medoid") +
+  scale_x_continuous(breaks=c(seq(1,K[length(K)])))
+
+```
+
+For k-medoid for clustering, based on the average Silhouette width, we can use $K=2$.
+
+* We can also use Gap statistic to choose $k$ - Reference [**Modern Statistics for Modern Biologists**](https://web.stanford.edu/class/bios221/book/Chap-Clustering.html) Chapter 5.7.1.
+
+
+
+## Clustering - votes data
+
+* We will use _votes.repub_ in the cluster package. 
+* Look at the help page for _votes.repub_
+
+### k-means
+
+```{r eval=FALSE}
+data(votes.repub) # from cluster package
+votes.repub_scaled <- scale(votes.repub)
+votes.repub_kmeans <- kmeans(na.omit(votes.repub_scaled), 2)
+```
+
+Why kmean() doesn't work?
+We needed to omit the NAs.
+### Hierarchical clustering - divisive clustering
+
+
+* Apply divisive clustering 
+  * To divide the selected cluster, the algorithm first looks for its most disparate observation (i.e., which has the largest average dissimilarity to the other observations of the selected cluster)
+  * This observation initiates the "splinter group".
+  * In subsequent steps, the algorithm reassigns observations that are closer to the "splinter group"
+
+```{r v-1, exercise = TRUE}
+library(cluster)
+library(factoextra)
+divisive_votes <- diana(
+  votes.repub, 
+  metric = "euclidean", 
+  stand = TRUE
+  )
+
+plot(divisive_votes)
+
+cut_divisive_votes <- cutree(as.hclust(divisive_votes), k = 2)
+table(cut_divisive_votes) # 8 and 42 group members
+rownames(votes.repub)[cut_divisive_votes == 1]
+# rownames(votes.repub)[cut_divisive_votes == 2]
+
+#make a nice dendrogram
+fviz_dend(
+  divisive_votes, 
+  cex = 0.5,
+  k = 2, # Cut in 2 groups
+  palette = "jco", # Color palette
+  main = "Dendrogram for votes data (divisive clustering)")
+
+
+```
+
+
+### Hierarchical clustering -  agglomerative clustering
+
+```{r v-2, exercise = TRUE, exercise.setup = c("v-1")}
+x <- votes.repub %>% 
+  scale()
+hc_vote <- hclust(dist(x), "ward.D")
+plot(hc_vote)
+
+
+#make a nice dendrogram
+fviz_dend(
+  hc_vote, 
+  k = 2, # Cut in 2 groups
+  cex = 0.5, 
+  color_labels_by_k = TRUE, 
+  rect = TRUE,
+  main = "Dendrogram for votes data (agglomerative clustering)"
+  )
+```
+
+
+
+## Next lab
+
+Subset selection, ridge regression...
+
+
+## References
+
+
+
+
+
+
+
+
+
+
+
